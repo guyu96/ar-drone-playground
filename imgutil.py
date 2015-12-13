@@ -1,5 +1,10 @@
 import cv2
 import numpy as np
+import os
+
+
+THRESHOLD = 8500000
+
 
 def match_template(temp_path, src_path, gray=True, edge=True):
     template = cv2.imread(temp_path)
@@ -27,8 +32,8 @@ def match_template(temp_path, src_path, gray=True, edge=True):
         if rw < tw or rh < th:
             continue
 
-        resized = cv2.resize(srcimg, (rw, rh), 
-            interpolation=cv2.INTER_AREA)
+        resized = cv2.resize(srcimg, (rw, rh),
+                             interpolation=cv2.INTER_AREA)
         result = cv2.matchTemplate(resized, template, cv2.TM_CCOEFF)
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
@@ -37,12 +42,40 @@ def match_template(temp_path, src_path, gray=True, edge=True):
 
     # matching region dimensions & locations
     mrw, mrh = int(tw / found[2]), int(th / found[2])
-    mrloc = (int(found[1][0] / found[2]), 
-        int(found[1][1] / found[2]))
+    mrloc = (int(found[1][0] / found[2]),
+             int(found[1][1] / found[2]))
 
     cv2.rectangle(src_copy, mrloc, (mrloc[0]+mrw, mrloc[1]+mrh),
-        (0, 0, 0), 2)
-    # cv2.imshow('ImageWindow', src_copy)
-    # cv2.waitKey(1500)
+                  (0, 0, 0), 2)
+
+    cv2.imshow('ImageWindow', src_copy)
+    cv2.waitKey(200)
 
     return found[0]
+
+
+def get_threshold_stats():
+    pics_path = '/home/guyu/py/ps_drone/img/pattern'
+    template_path = pics_path + '/pattern.png'
+    pic_types = os.listdir(pics_path + '/sample')
+
+    confidence_dict = {}
+    for pic_type in pic_types:
+        confidence_sum = 0
+        highest = 0
+        lowest = 1000000000
+
+        pics = os.listdir(pics_path + '/sample/' + pic_type)
+        for pic in pics:
+            pic_path = pics_path + '/sample/' + pic_type + '/' + pic
+            confidence = match_template(template_path, pic_path)
+
+            confidence_sum += confidence
+            if confidence > highest:
+                highest = confidence
+            if confidence < lowest:
+                lowest = confidence
+
+        confidence_dict[pic_type] = (lowest, highest, confidence_sum/len(pics))
+
+    print(confidence_dict)

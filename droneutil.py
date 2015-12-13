@@ -1,15 +1,20 @@
 import ps_drone
 import cv2
-import os
 
-import imgutil
-import alprutil
+import os
 import time
 
 
+OPTIMAL_MVSPEED = 0.25
+OPTIMAL_LTURN_SPEED = 0.5
+OPTIMAL_RTURN_SPEED = 0.65
+OPTIMAL_UPDOWN_SPEED = 0.4
+
+
 def print_battery(drone):
-    drone.printBlue('Battery: ' + str(drone.getBattery()[0]) + 
+    drone.printBlue('Battery: ' + str(drone.getBattery()[0]) +
                     '% ' + str(drone.getBattery()[1]))
+
 
 def save_img(drone, folder_name):
     VIC = drone.VideoImageCount
@@ -22,28 +27,37 @@ def save_img(drone, folder_name):
     img_path = '%s%s/drone_%d.jpg' % (root_path, folder_name, VIC)
 
     cv2.imwrite(img_path, cv2img)
-    # drone.printGreen('Picture stored in %s' % img_path)
-    return img_path    
+    return img_path
 
-def get_drone(defaultSpeed=0.1, videoOn=True):
+
+def get_drone(defaultSpeed=OPTIMAL_MVSPEED, videoOn=True):
     drone = ps_drone.Drone()
     drone.startup()
     drone.reset()
+    # Wait till the drone fully resets
+    time.sleep(2)
 
     # getBattery() returns (batValue percent), batStatus(OK or empty))
     while drone.getBattery()[0] == -1:
         time.sleep(0.1)
+
     # Give the drone some time to fully awake
     time.sleep(0.5)
 
     # "demo", "vision detect" and "chksum" packages of Navdata
     # are available 15 times per second
     drone.useDemoMode(True)
+
     # Recalibrate sensors
     drone.trim()
+    drone.mtrim()
+
+    # Set the speed of the drone
     drone.setSpeed(defaultSpeed)
+
     print_battery(drone)
 
+    # Initialize the drone's video function
     if videoOn:
         # Need to switch drone to multi-configuration mode before using video
         drone.setConfigAllID()
@@ -51,6 +65,7 @@ def get_drone(defaultSpeed=0.1, videoOn=True):
         drone.sdVideo()
         # Use front camera
         drone.frontCam()
+
         # Activate the drone's video function
         drone.printYellow('Loading Video Function...')
         drone.startVideo()
@@ -63,6 +78,7 @@ def get_drone(defaultSpeed=0.1, videoOn=True):
 
     return drone
 
+
 def do(func, duration):
     if func is None:
         time.sleep(duration)
@@ -73,6 +89,7 @@ def do(func, duration):
         func()
         time.sleep(0.01)
 
+
 def current_time_str():
     def two_digit(digits):
         if len(digits) == 1:
@@ -82,7 +99,9 @@ def current_time_str():
     t = time.gmtime()
     timestr = ''
     for i in range(6):
-        s = two_digit(str(t[i]))
+        s = str(t[i])
+        if len(s) == 1:
+            s = '0' + s
         if i < 2:
             s += '-'
         elif i == 2:
@@ -94,29 +113,29 @@ def current_time_str():
 
     return timestr
 
+
 control_message = \
-"""
+    """
 
----CONTROL MANUAL---
-SPACE:  LAND/TAKE OFF
-B:      STOP MOVEMENT
-W:      MOVE FOWARD
-S:      MOVE BACKWARD
-A:      MOVE LEFT
-D:      MOVE RIGHT
-Q:      TURN LEFT
-E:      TURN RIGHT
-P:      TAKE PICTURE
-U:      MOVE UP
-I:      MOVE DOWN
-N:      TERMINATE CONTROL
-H:      SHOW MANUAL
+    ---CONTROL MANUAL---
+    SPACE:  LAND/TAKE OFF
+    W:      MOVE FOWARD
+    S:      MOVE BACKWARD
+    A:      MOVE LEFT
+    D:      MOVE RIGHT
+    Q:      TURN LEFT
+    E:      TURN RIGHT
+    P:      TAKE PICTURE
+    U:      MOVE UP
+    I:      MOVE DOWN
+    N:      TERMINATE CONTROL
+    H:      SHOW MANUAL
 
-"""
+    """
+
 
 controls_dict = {
     ' ': 'Taking off/Landing...',
-    'b': 'Stopping movement...',
     'w': 'Moving forward...',
     's': 'Moving backward...',
     'a': 'Movin left...',
@@ -130,7 +149,8 @@ controls_dict = {
     'h': control_message
 }
 
-def manual_control(drone, defaultSpeed=0.05, interval=2, func=None):
+
+def manual_control(drone, interval=1, func=None):
     stop = False
     session_time = current_time_str()
     drone.printBlue(control_message)
@@ -143,10 +163,7 @@ def manual_control(drone, defaultSpeed=0.05, interval=2, func=None):
             drone.printBlue(controls_dict[key])
         elif key != '':
             drone.printRed('"%s" is an invalid command.' % key)
-            time.sleep(0.1)
             continue
-
-        # ***CONTROL COMMANDS***
 
         # Press space to toggle landing / taking off
         if key == ' ':
@@ -159,114 +176,47 @@ def manual_control(drone, defaultSpeed=0.05, interval=2, func=None):
                 drone.land()
                 time.sleep(4)
 
-        # WASD controls
-        elif key == 'w':
-            drone.moveForward()
-            do(func, interval)
-            drone.hover()
-        elif key == 's':
-            drone.moveBackward()
-            do(func, interval)
-            drone.hover()
-        elif key == 'a':
-            drone.moveLeft()
-            do(func, interval)
-            drone.hover()
-        elif key == 'd':
-            drone.moveRight()
-            do(func, interval)
-            drone.hover()
-
-        # QE for turning
-        elif key == 'q':
-            drone.turnAngle(-30, defaultSpeed, 1)
-            do(func, max(2, interval))
-            drone.hover()
-        elif key == 'e':
-            drone.turnAngle(30, defaultSpeed, 1)
-            do(func, max(2, interval))
-            drone.hover()
-
-        # UI for moving up/down
-        elif key == 'u':
-            drone.moveUp()
-            do(func, interval)
-            drone.hover()
-        elif key == 'i':
-            drone.moveDown()
-            do(func, interval)
-            drone.hover()
-
         # L to take picture
         elif key == 'p':
-            img_path = save_img(drone)
+            img_path = save_img(drone, session_time)
             drone.printGreen('Picture stored in %s' % img_path)
-
-        # B to stop movement
-        elif key == 'b':
-            drone.hover()
-            time.sleep(1)
 
         # N to terminate control
         elif key == 'n':
             drone.land()
+            time.sleep(4)
             stop = True
 
+        # It received movement commands:
+        # func is only executed during these commands
+        else:
+            # WASD for moving
+            if key == 'w':
+                drone.moveForward(OPTIMAL_MVSPEED)
+            elif key == 's':
+                drone.moveBackward(OPTIMAL_MVSPEED)
+            elif key == 'a':
+                drone.moveLeft(OPTIMAL_MVSPEED)
+            elif key == 'd':
+                drone.moveRight(OPTIMAL_MVSPEED)
+
+            # QE for turning
+            elif key == 'q':
+                drone.turnLeft(OPTIMAL_LTURN_SPEED)
+            elif key == 'e':
+                drone.turnRight(OPTIMAL_RTURN_SPEED)
+
+            # UI for going up/down
+            elif key == 'u':
+                drone.moveUp(OPTIMAL_UPDOWN_SPEED)
+            elif key == 'i':
+                drone.moveDown(OPTIMAL_UPDOWN_SPEED)
+
+            # Execute the function, and stop the drone
+            do(func, interval)
+            drone.hover()
+            time.sleep(1)
+
+        # Command successful
         if key != '':
             drone.printGreen('Command Successful.')
-
-        time.sleep(0.1)
-
-
-
-#### Code for chasing an object
-#### Doesn't work now, needs major revision
-def look_around(drone, threshold, pattern_path, turn_speed=0.1):
-    for i in range(24):
-        drone.turnAngle(15, turn_speed, 0.1)
-    time.sleep(4)
-    t = time.time()
-    while time.time() - t < 4:
-        path = save_pic(drone, folder_name='pattern_detect')
-        confidence = imgutil.match_template(pattern_path, path)
-        if confidence > threshold:
-            drone.stop()
-            return True
-    return False
-
-def find_pattern(drone, threshold, pattern_path, downs, ups, interval):
-    for d in range(downs):
-        drone.moveDown()
-        time.sleep(interval)
-        drone.stop()
-        found = look_around(drone, threshold, pattern_path)
-
-        if found:
-            return True
-
-    for u in range(ups):
-        drone.moveUp()
-        time.sleep(interval)
-        drone.stop()
-        found = look_around(drone, threshold, pattern_path)
-
-        if found:
-            return True
-
-    return False
-
-
-def chase(drone, threshold, pattern_path):
-    drone.takeoff()
-    time.sleep(5)
-    found = find_pattern(drone, threshold, pattern_path, 3, 6, 0.2)
-    if not found:
-        drone.land()
-    else:
-        while found:
-            drone.moveForward()
-            time.sleep(0.5)
-            drone.stop()
-            found = find_pattern(drone, threshold, pattern_path, 3, 6, 0.5)
-
-    drone.land()

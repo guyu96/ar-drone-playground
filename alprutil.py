@@ -1,13 +1,15 @@
 from openalpr import Alpr
 
+
 def get_alpr():
     alpr = Alpr("us", "/etc/openalpr/openalpr.conf",
-        "/usr/share/openalpr/runtime_data")
+                "/usr/share/openalpr/runtime_data")
     if not alpr.is_loaded():
         print("Error loading OpenALPR")
         return None
     print("Using OpenALPR" + alpr.get_version())
     return alpr
+
 
 def detect_plates(alpr, img_path):
     jpeg_bytes = open(img_path, 'rb').read()
@@ -16,6 +18,7 @@ def detect_plates(alpr, img_path):
     if not plates:
         return None
     return plates
+
 
 def print_plates(plates):
     plate_count = 0
@@ -35,4 +38,4 @@ def print_plates(plates):
             if candidate["matches_template"]:
                 prefix = "*"
             print("  %s %12s%12f" % (prefix, candidate['plate'],
-                candidate['confidence']))
+                                     candidate['confidence']))

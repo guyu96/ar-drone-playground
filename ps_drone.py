@@ -30,7 +30,7 @@ offsetND, suicideND, commitsuicideND = 0, False, False												# Global varia
  
 class Drone(object):
 ######################################=-
-### Start and stop using the drone ###=-
+### Start and stop using bthe drone ###=-
 ######################################=-
 	###### Bootup and base configuration
 	def __init__(self):
@@ -315,6 +315,7 @@ class Drone(object):
 
 	# Absolute movement in x, y and z-direction and rotation
 	def move(self, leftright, backwardforward, downup, turnleftright):	# Absolute movement in x, y and z-direction and rotation
+		# print('backwardforward', backwardforward)
 		if self.valueCorrection:
 			try:		leftright = 		float(leftright)
 			except:		leftright = 		0.0
@@ -332,6 +333,8 @@ class Drone(object):
 		if downup < -1.0:				downup =			-1.0
 		if turnleftright >  1.0:		turnleftright =		 1.0
 		if turnleftright < -1.0:		turnleftright =		-1.0
+
+		# print([3 ,leftright, -backwardforward, downup, turnleftright])
 		self.at("PCMD", [3 ,leftright, -backwardforward, downup, turnleftright])
 
 	# Relative movement to controller in x, y and z-direction and rotation
@@ -415,7 +418,9 @@ class Drone(object):
 		reftime = 	time.time()
 		accurateness = 0		
 		try:	accurateness = args[0]
-		except:	pass
+		except Exception as e:
+			print(e)
+			pass
 		if accurateness<=0:
 			accurateness = 0.005							# Destination angle can differ +/- this value (not demo-mode)
 			if self.__State[10]:	accurateness = 0.1		# Destination angle can differ +/- this value in demo-mode
@@ -433,8 +438,15 @@ class Drone(object):
 			if speed > ospeed:			speed = ospeed		# do not turn faster than recommended
 			if speed < 0.05:			speed = 0.05		# too slow turns causes complications with calibration
 			self.__speed = speed
-			if cpos > (npos+kalib):		self.turnLeft()		# turn left, if destination angle is lower
-			else:						self.turnRight()	# turn right if destination angle is higher
+			if cpos > (npos+kalib):
+				# print('Calling turn left')
+				self.turnLeft()		# turn left, if destination angle is lower
+			else:				
+				# print('Calling turn right')
+				self.turnRight()	# turn right if destination angle is higher
+			# print()
+			# n_and_k = npos + kalib
+			# print(cpos, npos, kalib, accurateness, n_and_k, n_and_k + accurateness, n_and_k - accurateness)
 			if cpos < (npos+kalib+accurateness) and cpos > (npos+kalib-accurateness):# if angle is reached...
 				self.stop()									# ...stop turning
 				time.sleep(0.01)
@@ -621,6 +633,7 @@ class Drone(object):
 	def at(self, command, params):
 		self.__lock.acquire()
 		paramLn = ""
+		# print(command, params)
 		if params:	
 			for p in params:
 				if type(p) 	 == int:	paramLn += ","+str(p)
