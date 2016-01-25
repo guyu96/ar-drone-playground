@@ -1,6 +1,6 @@
 #########
 # ps_drone.py
-# (w)+(c) J. Philipp de Graaff, www.playsheep.de, drone@playsheep.de, 2012-2014
+# (w)+(c) J. Philipp de Graaff, www.playsheep.de, drone@playsheep.de, 2012-2015
 # Project homepage: www.playsheep.de/drone and https://sourceforge.net/projects/ps-drone/
 # Dependencies: a POSIX OS, openCV2 for video-support.
 # Base-program of the PS-Drone API: "An open and enhanced API for universal control of the Parrot AR.Drone 2.0 quadcopter."
@@ -27,14 +27,20 @@ if os.name == 'posix':	import termios, fcntl	# for getKey(), ToDo: Reprogram for
  
 commitsuicideV, showVid, vCruns, lockV, debugV =	False, False, False, threading.Lock(), False	# Global variables for video-decoding
 offsetND, suicideND, commitsuicideND = 0, False, False												# Global variables for NavDava-decoding
- 
+
+
+#Neu:
+#	changeIP
+# Video Detection
+
+
 class Drone(object):
 ######################################=-
-### Start and stop using bthe drone ###=-
+### Start and stop using the drone ###=-
 ######################################=-
 	###### Bootup and base configuration
 	def __init__(self):
-		self.__Version = 		"2.0.2"
+		self.__Version = 		"2.1.1 beta"
 		self.__lock = 			threading.Lock()	# To prevent semaphores
 		self.__startTime = 		time.time()
 		self.__speed = 			0.2					# Default drone moving speed in percent.
@@ -315,7 +321,6 @@ class Drone(object):
 
 	# Absolute movement in x, y and z-direction and rotation
 	def move(self, leftright, backwardforward, downup, turnleftright):	# Absolute movement in x, y and z-direction and rotation
-		# print('backwardforward', backwardforward)
 		if self.valueCorrection:
 			try:		leftright = 		float(leftright)
 			except:		leftright = 		0.0
@@ -333,8 +338,6 @@ class Drone(object):
 		if downup < -1.0:				downup =			-1.0
 		if turnleftright >  1.0:		turnleftright =		 1.0
 		if turnleftright < -1.0:		turnleftright =		-1.0
-
-		# print([3 ,leftright, -backwardforward, downup, turnleftright])
 		self.at("PCMD", [3 ,leftright, -backwardforward, downup, turnleftright])
 
 	# Relative movement to controller in x, y and z-direction and rotation
@@ -390,7 +393,7 @@ class Drone(object):
 		except:	speed=self.__speed
 		self.move(0.0,0.0, self.__checkSpeedValue(speed),0.0)
 
-	def moveDown(self,*args):
+	def moveDown(self,args):
 		try:	speed=args[0]
 		except:	speed=self.__speed
 		self.move(0.0,0.0,-self.__checkSpeedValue(speed),0.0)
@@ -418,14 +421,14 @@ class Drone(object):
 		reftime = 	time.time()
 		accurateness = 0		
 		try:	accurateness = args[0]
-		except Exception as e:
-			print(e)
-			pass
+		except:	pass
 		if accurateness<=0:
 			accurateness = 0.005							# Destination angle can differ +/- this value (not demo-mode)
 			if self.__State[10]:	accurateness = 0.1		# Destination angle can differ +/- this value in demo-mode
-		stop = False
-		while not stop:
+		stop =		False
+		counter =	0
+		direction =	0										# -1 = left | 1 = right     To prevent endless loops (happends sometimes, whyever)
+		while not stop and counter<=5:
 			ndc = self.__NavDataCount						# wait for the next NavData-package
 			while ndc == self.__NavDataCount:		time.sleep(0.001)
 			kalib = (time.time()-reftime)*self.selfRotation	# trys to recalibrate, causing moving sensor-values around 0.0185 deg/sec
@@ -438,15 +441,15 @@ class Drone(object):
 			if speed > ospeed:			speed = ospeed		# do not turn faster than recommended
 			if speed < 0.05:			speed = 0.05		# too slow turns causes complications with calibration
 			self.__speed = speed
-			if cpos > (npos+kalib):
-				# print('Calling turn left')
-				self.turnLeft()		# turn left, if destination angle is lower
-			else:				
-				# print('Calling turn right')
-				self.turnRight()	# turn right if destination angle is higher
-			# print()
-			# n_and_k = npos + kalib
-			# print(cpos, npos, kalib, accurateness, n_and_k, n_and_k + accurateness, n_and_k - accurateness)
+			if cpos > (npos+kalib):							# turn left, if destination angle is lower
+				self.turnLeft()
+				if direction   ==  0:	direction = -1
+				elif direction ==  1:	direction, counter = -1, counter+1
+			else:											# turn right if destination angle is higher
+				self.turnRight()
+				if direction   ==  0:	direction = 1
+				elif direction == -1:	direction, counter = 1, counter+1
+
 			if cpos < (npos+kalib+accurateness) and cpos > (npos+kalib-accurateness):# if angle is reached...
 				self.stop()									# ...stop turning
 				time.sleep(0.01)
@@ -623,6 +626,17 @@ class Drone(object):
 		if animation < 20 and duration >= 0:
 			self.at("ANIM", [animation, duration])
 
+	def changeIP(self, IP):
+		try:
+			import telnetlib
+			tnet	= telnetlib.Telnet(self.DroneIP)
+			tnet.write("ifconfig ath0 down;ifconfig ath0 "+IP+" netmask 255.255.255.0;ifconfig ath0 up\n")
+			tnet.close()
+			self.DroneIP=IP
+			OK		= True
+		except:
+			OK		= False
+		return OK
 
 #########################=-
 ### Low-level Commands ###=-
@@ -633,7 +647,6 @@ class Drone(object):
 	def at(self, command, params):
 		self.__lock.acquire()
 		paramLn = ""
-		# print(command, params)
 		if params:	
 			for p in params:
 				if type(p) 	 == int:	paramLn += ","+str(p)
@@ -697,7 +710,7 @@ class Drone(object):
 		if os.name == 'nt':
 			if msvcrt.kbhit():	key = msvcrt.getch()
 		key += self.__vKey
-#		self.__vKey = ""
+		self.__vKey = ""
 		return key
 
 	# Drone hops like an excited dog
@@ -956,6 +969,9 @@ class Drone(object):
 					except IOError:	pass
 				debug, showCommands = self.__checkAndReact(debug, showCommands)		# Check for errors and things to change
 		if self.debug:	print "receiveData-Thread : committed suicide"
+		# TestMe
+		try:	self.__Config_pipe.close()
+		except:	pass
 
 	def __stopnetwork(self):
 		self.__networksuicide = True
@@ -1012,7 +1028,6 @@ def vCapture(VidPipePath, parent_pipe):
 	import cv2
 	global vCruns, commitsuicideV, showVid, lockV, debugV
 
-#	cv2.startWindowThread()
 	show = 		False
 	hide =		True
 	vCruns =	True
@@ -1021,8 +1036,9 @@ def vCapture(VidPipePath, parent_pipe):
 	capture = 	cv2.VideoCapture(VidPipePath)
 	ImgCount =	0
 	if debugV:	print "CAPTURE: "+str(time.time()-t)
-	time.sleep(0.1)
+	time.sleep(0.2)
 	parent_pipe.send(("foundCodec",0,0,0))
+	time.sleep(0.2)
 	declag =	time.time()
 	count =		-3
 	imageXsize = 	0
@@ -1037,19 +1053,24 @@ def vCapture(VidPipePath, parent_pipe):
 		receiveWatchdog = threading.Timer(2.0, VideoReceiveWatchdog, [parent_pipe,"vCapture", debugV])	# Resets video if something hangs
 		receiveWatchdog.start()
 		success, image = 	capture.read()
-		cc+=1
+		cc	+=1
 		receiveWatchdog.cancel()
 		decTime =			decTimeRev-time.time()
 		tlag =				time.time()-declag
 
 		if not codecOK and success:
-			if image.shape[:2]==(360,640) or image.shape[:2]==(368,640) or image.shape[:2]==(720,1280) or image.shape[:2]==(1080,1920):
-				codecOK = True
-				if debugV:	print "Codec seems OK"
-			else:
-				if debugV:	print "Codec failure"
-				parent_pipe.send(("reset",0,0,0))
-				commitsuicideV = True
+			try:
+				if image.shape[:2]==(360,640) or image.shape[:2]==(368,640) or image.shape[:2]==(720,1280) or image.shape[:2]==(1080,1920):
+					codecOK = True
+					if debugV:	print "Codec seems OK"
+				else:
+					if debugV:	print "Codec failure"
+					parent_pipe.send(("reset",0,0,0))
+					commitsuicideV = True
+			except:
+					if debugV:	print "Codec failure"
+					parent_pipe.send(("reset",0,0,0))
+					commitsuicideV = True
 		if codecOK:
 			if not (imageXsize == image.shape[1]) or not (imageYsize == image.shape[0]):
 				cv2.destroyAllWindows()
@@ -1121,9 +1142,9 @@ def VideoReceiveWatchdog(parent_pipe,name, debugV):
 
 def mainloopV(DroneIP, VideoPort, VidPipePath, parent_pipe, parentPID):
 	inited, preinited, suicide, debugV, showCommands, slowVideo = False, False, 0, False, False, False
-	rawVideoFrame, VidStreamSnippet, VidStreamSnippetAvalible, iFrame, FrameCount = "", "", False, False, 0 
+	rawVideoFrame, VidStreamSnippet, VidStreamSnippetAvalible, iFrame, lastIFrame = "", "", False, False, False
 	saveVideo, unsureMode, searchCodecTime, frameRepeat, burstFrameCount = False, True, 0, 1, 0
-	reset, resetCount, commitsuicideV, foundCodec = False, 0, False, False
+	FrameCount, reset, resetCount, commitsuicideV, foundCodec = 0,False, 0, False, False
 
 	vstream_pipe, pipes = None, [parent_pipe]
 	vdecode_pipe, vdecode_childpipe = multiprocessing.Pipe()
@@ -1143,22 +1164,25 @@ def mainloopV(DroneIP, VideoPort, VidPipePath, parent_pipe, parentPID):
 						parent_pipe.send("vDecProcKill")
 						dummy = 0
 					else:	commitsuicideV = True
-				elif cmd == "foundCodec":	foundCodec = True
+				elif cmd == "foundCodec":
+					foundCodec		= True
+					burstFrameCount = 0
 				elif cmd == "reset" and not reset:# and resetCount<3:
-					inited, preinited, foundCodec = 	False, False, False
-					rawVideoFrame, VidStreamSnippet = 	"", ""
-					VidStreamSnippetAvalible = 			False
-					iFrame, FrameCount, reset =			False, 0, True
-					unsureMode, searchCodecTime = 		True, 0
-					burstFrameCount	=					0
-					resetCount += 1
+					inited, preinited, foundCodec	= False, False, False
+					rawVideoFrame, VidStreamSnippet	= "", ""
+					VidStreamSnippetAvalible		= False
+					iFrame, lastIFrame				= False, False
+					FrameCount, reset				= False, 0, True
+					unsureMode, searchCodecTime		= True, 0
+					burstFrameCount					= 0
+					resetCount						+= 1
 					parent_pipe.send("vDecProcKill")
 				elif cmd == "slowVideo":
 					slowVideo = True
 					frameRepeat = 1
 				elif cmd == "midVideo":
 					slowVideo = True
-					frameRepeat = 4
+					frameRepeat = 5
 				elif cmd == "fastVideo":
 					slowVideo = False
 					frameRepeat = 1
@@ -1183,16 +1207,22 @@ def mainloopV(DroneIP, VideoPort, VidPipePath, parent_pipe, parentPID):
 					parent_pipe.send("undebug")
 				elif cmd == "init" and not inited and not preinited:
 					preinited = True
-					try:	os.mkfifo(VidPipePath)
-					except:	pass
+					try:
+						os.mkfifo(VidPipePath)
+						os.chmod(VidPipePath, 1411)		# dec => oct : 777 => 1411 | 666 => 1232
+					except:
+						saveVideo = True						# ... fall back to savemode
+						parent_pipe.send("saveVideo")			# Inform the main process
+						unsureMode = False
+						foundCodec = True	
 					parent_pipe.send("vDecProc")
 				elif cmd == "vDecProcON":
-					rawVideoFrame = ""
-					VidStreamSnippet = ""
-					iFrame = False
-					FrameCount = 0
-					foundCodec = False
-					searchCodecTime = 0
+					rawVideoFrame		= ""
+					VidStreamSnippet	= ""
+					iFrame, lastIFrame	= False, False
+					FrameCount			= 0
+					foundCodec			= False
+					searchCodecTime		= 0
 					if not vstream_pipe:
 						vstream_pipe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 						vstream_pipe.setblocking(0)
@@ -1217,8 +1247,14 @@ def mainloopV(DroneIP, VideoPort, VidPipePath, parent_pipe, parentPID):
 					try:			os.remove(VidPipePath)
 					except:			pass
 					if not inited and reset:
-						try:	os.mkfifo(VidPipePath)
-						except:	pass
+						try:
+							os.mkfifo(VidPipePath)
+							os.chmod(VidPipePath, 1411)		# dec => oct : 777 => 1411 | 666 => 1232
+						except:
+							saveVideo = True						# ... fall back to savemode
+							parent_pipe.send("saveVideo")			# Inform the main process
+							unsureMode = False
+							foundCodec = True	
 						parent_pipe.send("VideoDown")
 						parent_pipe.send("vDecProc")
 						parent_pipe.send("debug")
@@ -1235,69 +1271,81 @@ def mainloopV(DroneIP, VideoPort, VidPipePath, parent_pipe, parentPID):
 			if ip == vstream_pipe:
 				receiveWatchdog = threading.Timer(2.0, VideoReceiveWatchdog, [parent_pipe,"Video Mainloop", debugV,])	# Resets video if something hangs
 				receiveWatchdog.start()
-				videoPackage = vstream_pipe.recv(65535)
+				videoPackage	= vstream_pipe.recv(65535)
 				receiveWatchdog.cancel()
-				if len(videoPackage) == 0:		commitsuicideV = True
+				lenVideoPackage	=len(videoPackage)
+				if lenVideoPackage == 0:		commitsuicideV = True
 				else:
 					if inited and not reset:
-						if unsureMode:			### An MPEG4-Stream is not confirmed, fallback to savemode ?
-							if not searchCodecTime and not len(VidStreamSnippet):	# Video is freshly initiated
-								searchCodecTime = time.time()
-							if (time.time()-searchCodecTime) < 0.15:				# Collecting VidStreamSnipped for later use
-								VidStreamSnippet+=videoPackage
-							if (time.time()-searchCodecTime) > 2.0:					# Waited too long for an MPEG4 stream confirmation...
-								saveVideo = True									# ... fall back to savemode
-								parent_pipe.send("saveVideo")						# Inform the main process
+						### Analyze raw datastream
+						frameStart = False
+						if not saveVideo and lenVideoPackage>45 and videoPackage[36:40]=="\x00\x00\x00\x00" and videoPackage[41:44]=="\x00\x01\x00":
+							frameStart		= True
+							rawVideoFrame	= VidStreamSnippet
+							lastIFrame		= iFrame
+							if videoPackage[30] == "\x01":			# I-Frame
+								iFrame, unsureMode	= True, False
+								VidStreamSnippet	= videoPackage
+								FrameCount += 1
+							elif videoPackage[30] == "\x03":		# P-Frame
+								iFrame = False
+								if not unsureMode:
+									if foundCodec:		VidStreamSnippet	= videoPackage
+#									else:				VidStreamSnippet   += videoPackage
+								FrameCount += 1
+							else:	
+								iFrame				= False
+								VidStreamSnippet	= videoPackage
+								if debugV:
+									print "*** Odd h264 Frametype: ",FrameCount,
+									print videoPackage[30:50].encode("hex")
+									print " - ",videoPackage[31:40].find("\x00\x00\x00"),ord(videoPackage[30])
+						elif not unsureMode:
+							VidStreamSnippet+=videoPackage		# Merging video-snippets
+
+
+						### Procress last frame
+						# An MPEG4-Stream is not confirmed. Boost or fallback to savemode.
+						lenRawVideoFrame	= len(rawVideoFrame)
+
+#						print slowVideo, frameStart, saveVideo, foundCodec, lenRawVideoFrame
+
+						if not saveVideo and unsureMode and frameStart and lastIFrame and lenRawVideoFrame>0:
+							if not searchCodecTime:	
+								searchCodecTime = time.time()			# Video is freshly initiated
+							elif (time.time()-searchCodecTime) > 2.0:	# Waited too long for an MPEG4 stream confirmation...
+								saveVideo = True						# ... fall back to savemode
+								parent_pipe.send("saveVideo")			# Inform the main process
 								unsureMode = False
-								foundCodec = True									# switch off codec guess speed-up
-						if not saveVideo:
-	#						if len(videoPackage) == 0:		commitsuicideV = True
-	#						else:
-								if videoPackage[31:40].find("\x00\x00\x00")>3:		# Found a new MPEG4-Frame
-									FrameCount+=1
-									### Processing the last frame
-									if iFrame:										# If the last frame was an I-frame
-										VidStreamSnippet = rawVideoFrame			# ... save it as VideoStreamSnippet for later use
-										if foundCodec:								# OpenCV guessed the used Codec
-											if slowVideo:							# Send just the iFrame (openCV stores about 5 in its queue),
-												for i in range(0,frameRepeat,1):	#  ... so repeat for less delay in midVideo()-mode
-													write2pipe.write(VidStreamSnippet)
-										iFrame = False
-									else:	pass
-									if not slowVideo:								# For all last Frames
-										if foundCodec:
-											try:	write2pipe.write(rawVideoFrame)												
-											except: pass
-									if not foundCodec:								# Flood the pipe with the last iFrames, so that openCV can guess the codec faster
-										for i in range(0,5):
-											try:
-												write2pipe.write(rawVideoFrame)
-												burstFrameCount+=1
-											except: pass
-									### Processing new Frames
-									if ord(videoPackage[30]) == 1:					#### Found an I-Frame
-										rawVideoFrame = ""							# Delete the data previous to the first iFrame
-										unsureMode,iFrame = False, True
-									elif ord(videoPackage[30]) == 3:				#### Found a P-Frame
-										unsureMode = False
-									else:											#### Found an odd h264-frametype
-										if debugV:
-											print "*** Odd h264 Frametype: ",FrameCount,
-											for i in range(31,43,1):	print ord(videoPackage[i]),
-											print " - ",videoPackage[31:40].find("\x00\x00\x00"),ord(videoPackage[30])
-									rawVideoFrame = ""
-								### Collecting data for the next frame from stream
-								rawVideoFrame+=videoPackage
-						else: #(saveVideo-Mode)
-							if foundCodec:	write2pipe.write(videoPackage)
-							else:
-								for i in range(0,2):
-									write2pipe.write(VidStreamSnippet)
-									burstFrameCount+=1
-						if not foundCodec and burstFrameCount>350:
-							parent_pipe.send(("reset",0,0,0))
-							burstFrameCount=0
-							if debugV: print "To many pictures send while guessing the codec. Resetting."
+								foundCodec = True						# switch off codec guess speed-up
+						elif not saveVideo and frameStart and not unsureMode and not foundCodec and lenRawVideoFrame>0:
+							# Boost Frames
+							boost=((1024*512)/len(VidStreamSnippet))+1
+#							print "Boost IN", len(VidStreamSnippet)
+							for i in range(0,boost):
+								try: write2pipe.write(rawVideoFrame)
+								except: print "Boost ERROR"
+							burstFrameCount+=1
+							# Give up after to much tries
+							if burstFrameCount>10:		
+								parent_pipe.send(("reset",0,0,0))
+								time.sleep(0.2)
+								burstFrameCount=0
+								if debugV: print "To many pictures send while guessing the codec. Resetting."
+
+						# Normal Pipeing
+						elif not slowVideo and frameStart and (saveVideo or foundCodec) and lenRawVideoFrame>0:
+							if burstFrameCount==0 and lastIFrame:		burstFrameCount = 1
+							if burstFrameCount==1:
+								try:	write2pipe.write(rawVideoFrame)
+								except: print "Pipe Error"
+
+						# Just show the I-Frame for slow-video-mode (and repeat for less delay in midVideo()-mode)
+						elif not saveVideo and foundCodec and slowVideo and lastIFrame and lenRawVideoFrame>0:
+							for i in range(0,frameRepeat):			write2pipe.write(rawVideoFrame)	
+						# Save-Mode
+						elif saveVideo:								write2pipe.write(videoPackage)
+
 
 	try:
 		vstream_pipe.shutdown(socket.SHUT_RDWR)
@@ -1316,7 +1364,8 @@ def mainloopV(DroneIP, VideoPort, VidPipePath, parent_pipe, parentPID):
 	try:	os.remove(VidPipePath)
 	except:	pass
 	if debugV:	print "Video-Process :      committed suicide"
-
+	try:	vstream_pipe.close()
+	except:	pass
 	
 
 	
@@ -1991,8 +2040,9 @@ def mainloopND(DroneIP,NavDataPort,parent_pipe,parentPID):
 	suicideND = True
 	netHeartbeat.cancel()
 	if debug:	print "NavData-Process :    committed suicide"
-	
-	
+	# TestMe
+	try:	navdata_pipe.close()
+	except:	pass
 	
 	
 ##################################################################################################

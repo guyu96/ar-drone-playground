@@ -1,14 +1,15 @@
 import ps_drone
 import cv2
+import imgutil
 
 import os
 import time
 
 
-OPTIMAL_MVSPEED = 0.25
+OPTIMAL_MVSPEED = 0.1 #0.25
 OPTIMAL_LTURN_SPEED = 0.5
 OPTIMAL_RTURN_SPEED = 0.65
-OPTIMAL_UPDOWN_SPEED = 0.4
+OPTIMAL_UPDOWN_SPEED = 0.2 #0.4
 
 
 def print_battery(drone):
@@ -74,6 +75,7 @@ def get_drone(defaultSpeed=OPTIMAL_MVSPEED, videoOn=True):
         while VIC == drone.VideoImageCount:
             time.sleep(0.5)
 
+        drone.showVideo()
         drone.printGreen('Video Function Loaded')
 
     return drone
@@ -220,3 +222,49 @@ def manual_control(drone, interval=1, func=None):
         # Command successful
         if key != '':
             drone.printGreen('Command Successful.')
+
+
+def follow(drone, minhsv, maxhsv, testing=True):
+    if not testing:
+        # Try taking off
+        is_landed = drone.NavData['demo'][0][2]
+        is_flying = drone.NavData['demo'][0][3]
+        if is_landed and not is_flying:
+            drone.takeoff()
+            time.sleep(10)
+
+    x_error = 640 / 10
+    y_error = 360 / 10
+    cx = 640 / 2
+    cy = 360 / 2
+    speed = 0.05
+
+    def normalize(loc, center, error):
+        dist = center - loc
+        if abs(dist) < error:
+            return 0
+        if dist < 0:
+            return -1
+        return 1
+
+    stop = False
+    while not stop:
+        key = drone.getKey()
+        if key == ' ':
+            stop = True
+            drone.land()
+        else:
+            # location detection method here
+            location = imgutil.get_center(drone.VideoImage, minhsv, maxhsv)
+            if not location:
+                continue
+            x, y = location[1]
+            vx = normalize(x, cx, x_error) * speed * -1
+            vy = normalize(y, cy, y_error) * speed
+            # right, forward, up, turn
+            if not testing:
+                drone.move(vx, 0, vy, 0)
+            # else:
+            print('speed_x', vx, 'speed_y', vy)
+
+            time.sleep(0.3)

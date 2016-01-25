@@ -1,5 +1,6 @@
 import droneutil as du
 import alprutil as au
+import imgutil as iu
 
 drone = du.get_drone()
 # drone = du.get_drone(videoOn=False)
@@ -22,5 +23,11 @@ def lp_surveillance():
     du.manual_control(drone, func=detect_lp)
 
 
-# manual_flight()
-lp_surveillance()
+def follow_color_blob():
+    while drone.getKey() != ' ':
+        pass
+    minhsv, maxhsv = iu.get_range(drone.VideoImage)
+    # minhsv, maxhsv = (14, 131, 171), (26, 238, 245) # hsv for orange ping-pong ball
+    du.follow(drone, minhsv, maxhsv, False)
+
+follow_color_blob()
